@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Monaco + WYSIWYG YAML Editor</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    :root {
+      --amoled-black: #000000;
+      --dark-gray: #121212;
+      --medium-gray: #1e1e1e;
+      --light-gray: #2d2d2d;
+      --highlight: #4d4d4d;
+      --text: #e0e0e0;
+      --accent: #bb86fc;
+      --error: #cf6679;
+    }
+    
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: var(--amoled-black);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+    }
+    
+    .container {
+      display: flex;
+      height: 100vh;
+      width: 100%;
+    }
+    
+    .editor-container {
+      width: 50%;
+      height: 100%;
+      overflow: hidden;
+      border-right: 1px solid var(--highlight);
+    }
+    
+    #monaco-editor {
+      width: 100%;
+      height: 100%;
+    }
+    
+    .wysiwyg-container {
+      width: 50%;
+      height: 100%;
+      overflow: auto;
+      padding: 16px;
+      background-color: var(--amoled-black);
+    }
+    
+    .yaml-property {
+      margin-bottom: 8px;
+      border-left: 2px solid var(--highlight);
+      padding-left: 8px;
+    }
+    
+    .yaml-property-header {
+      display: flex;
+      align-items: center;
+      margin-bottom: 4px;
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 4px;
+      transition: background-color 0.2s;
+    }
+    
+    .yaml-property-header:hover {
+      background-color: var(--light-gray);
+    }
+    
+    .yaml-property-name {
+      font-weight: bold;
+      color: var(--accent);
+      margin-right: 8px;
+    }
+    
+    .yaml-property-value-container {
+      display: flex;
+      align-items: center;
+    }
+    
+    .yaml-property-type {
+      color: var(--text);
+      font-size: 0.8rem;
+      padding: 2px 4px;
+      background-color: var(--medium-gray);
+      border-radius: 4px;
+      margin-right: 8px;
+    }
+    
+    .yaml-property-value {
+      color: var(--text);
+      background-color: var(--dark-gray);
+      border: 1px solid var(--highlight);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-family: monospace;
+      flex-grow: 1;
+    }
+    
+    .yaml-property-value:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    
+    .yaml-object, .yaml-array {
+      margin-left: 16px;
+    }
+    
+    .yaml-controls {
+      margin-top: 16px;
+      display: flex;
+      gap: 8px;
+    }
+    
+    button {
+      background-color: var(--dark-gray);
+      color: var(--text);
+      border: 1px solid var(--highlight);
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    
+    button:hover {
+      background-color: var(--medium-gray);
+    }
+    
+    button.primary {
+      background-color: var(--accent);
+      color: var(--amoled-black);
+    }
+    
+    button.primary:hover {
+      background-color: #a178d8;
+    }
+    
+    .collapse-icon {
+      margin-right: 4px;
+      width: 16px;
+      height: 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.2s;
+      color: var(--text);
+    }
+    
+    .collapsed .collapse-icon {
+      transform: rotate(-90deg);
+    }
+    
+    .collapsed .yaml-object,
+    .collapsed .yaml-array {
+      display: none;
+    }
+    
+    .action-buttons {
+      display: flex;
+      gap: 4px;
+      margin-left: auto;
+    }
+    
+    .add-property-btn, .add-item-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      background-color: var(--dark-gray);
+      color: var(--accent);
+      border: 1px solid var(--highlight);
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    
+    .add-property-btn:hover, .add-item-btn:hover {
+      background-color: var(--medium-gray);
+    }
+    
+    .remove-property-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      background-color: var(--dark-gray);
+      color: var(--error);
+      border: 1px solid var(--highlight);
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    
+    .remove-property-btn:hover {
+      background-color: var(--medium-gray);
+    }
+    
+    .wysiwyg-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--highlight);
+    }
+    
+    .wysiwyg-header h2 {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .header-actions {
+      display: flex;
+      gap: 8px;
+    }
+    
+    .error-message {
+      color: var(--error);
+      margin-top: 8px;
+      font-size: 0.9rem;
+    }
+    
+    select {
+      background-color: var(--dark-gray);
+      color: var(--text);
+      border: 1px solid var(--highlight);
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+    
+    input[type="text"], input[type="number"] {
+      background-color: var(--dark-gray);
+      color: var(--text);
+      border: 1px solid var(--highlight);
+      padding: 4px 8px;
+      border-radius: 4px;
+      width: 100%;
+    }
+    
+    .modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      visibility: hidden;
+      opacity: 0;
+      transition: visibility 0s linear 0.25s, opacity 0.25s;
+    }
+    
+    .modal.visible {
+      visibility: visible;
+      opacity: 1;
+      transition-delay: 0s;
+    }
+    
+    .modal-content {
+      background-color: var(--dark-gray);
+      padding: 24px;
+      border-radius: 8px;
+      width: 400px;
+      max-width: 90%;
+    }
+    
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 24px;
+    }
+    
+    .form-group {
+      margin-bottom: 16px;
+    }
+    
+    .form-group label {
+      display: block;
+      margin-bottom: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="editor-container">
+      <div id="monaco-editor"></div>
+    </div>
+    
+    <div class="wysiwyg-container">
+      <div class="wysiwyg-header">
+        <h2><i class="fas fa-file-code"></i> YAML Editor</h2>
+        <div class="header-actions">
+          <button id="format-yaml" class="primary"><i class="fas fa-align-left"></i> Format</button>
+          <button id="save-yaml" class="primary"><i class="fas fa-save"></i> Save to URL</button>
+        </div>
+      </div>
+      
+      <div id="yaml-content"></div>
+      
+      <div class="yaml-controls">
+        <button id="apply-changes" style="display: none;">Apply Changes</button>
+        <button id="reset-yaml"><i class="fas fa-sync-alt"></i> Reset</button>
+      </div>
+      
+      <div id="error-container" class="error-message"></div>
+    </div>
+  </div>
+  
+  <!-- Add Property Modal -->
+  <div class="modal" id="add-property-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3><i class="fas fa-plus-circle"></i> Add Property</h3>
+        <button class="close-modal"><i class="fas fa-times"></i></button>
+      </div>
+      
+      <div class="form-group">
+        <label for="property-name">Property Name</label>
+        <input type="text" id="property-name" placeholder="Enter property name">
+      </div>
+      
+      <div class="form-group">
+        <label for="property-type">Property Type</label>
+        <select id="property-type">
+          <option value="string">String</option>
+          <option value="number">Number</option>
+          <option value="boolean">Boolean</option>
+          <option value="object">Object</option>
+          <option value="array">Array</option>
+          <option value="null">Null</option>
+        </select>
+      </div>
+      
+      <div class="form-group" id="property-value-container">
+        <label for="property-value">Initial Value</label>
+        <input type="text" id="property-value" placeholder="Enter initial value">
+      </div>
+      
+      <div class="modal-footer">
+        <button class="close-modal"><i class="fas fa-times"></i> Cancel</button>
+        <button id="confirm-add-property" class="primary"><i class="fas fa-plus"></i> Add</button>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    // Global variables for elements
+    const yamlContentElement = document.getElementById('yaml-content');
+    const formatYamlButton = document.getElementById('format-yaml');
+    const saveYamlButton = document.getElementById('save-yaml');
+    const applyChangesButton = document.getElementById('apply-changes');
+    const resetYamlButton = document.getElementById('reset-yaml');
+    const errorContainer = document.getElementById('error-container');
+    const addPropertyModal = document.getElementById('add-property-modal');
+    const closeModalButtons = document.querySelectorAll('.close-modal');
+    const confirmAddPropertyButton = document.getElementById('confirm-add-property');
+    const propertyNameInput = document.getElementById('property-name');
+    const propertyTypeSelect = document.getElementById('property-type');
+    const propertyValueInput = document.getElementById('property-value');
+    const propertyValueContainer = document.getElementById('property-value-container');
+    
+    // Global variables for state
+    let editor = null;
+    let currentYaml = null;
+    let currentPath = [];
+    let parentElement = null;
+    let isUpdatingEditor = false;
+    
+    // Configure Monaco editor
+    require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' }});
+    require(['vs/editor/editor.main'], function() {
+      // Define AMOLED theme
+      monaco.editor.defineTheme('amoled-theme', {
+        base: 'vs-dark',
+        inherit: true,
+        rules: [
+          { token: 'string', foreground: 'a5d6a7' },
+          { token: 'number', foreground: '64b5f6' },
+          { token: 'keyword', foreground: 'ba68c8' },
+          { token: 'delimiter', foreground: 'e0e0e0' },
+          { token: 'delimiter.bracket', foreground: 'e0e0e0' }
+        ],
+        colors: {
+          'editor.background': '#000000',
+          'editor.foreground': '#e0e0e0',
+          'editorCursor.foreground': '#bb86fc',
+          'editor.lineHighlightBackground': '#121212',
+          'editorLineNumber.foreground': '#4d4d4d',
+          'editor.selectionBackground': '#2d2d2d',
+          'editor.inactiveSelectionBackground': '#1e1e1e',
+          'editorSuggestWidget.background': '#121212',
+          'editorSuggestWidget.border': '#2d2d2d',
+          'editorSuggestWidget.foreground': '#e0e0e0',
+          'editorSuggestWidget.selectedBackground': '#2d2d2d',
+          'editorSuggestWidget.highlightForeground': '#bb86fc',
+          'editorWidget.background': '#121212',
+          'editorWidget.border': '#2d2d2d'
+        }
+      });
+      
+      // Create Monaco editor with YAML language
+      editor = monaco.editor.create(document.getElementById('monaco-editor'), {
+        value: 'hello: world\nnumber: 42\nboolean: true\nnested:\n  array:\n    - 1\n    - 2\n    - 3\n  null: null',
+        language: 'yaml',
+        theme: 'amoled-theme',
+        automaticLayout: true,
+        minimap: {
+          enabled: false
+        },
+        scrollBeyondLastLine: false,
+        formatOnPaste: true,
+        tabSize: 2
+      });
+      
+      // Initialize editor
+      initializeWysiwygEditor();
+      
+      // Load from URL hash if available
+      if (window.location.hash) {
+        try {
+          const encodedYaml = window.location.hash.substring(1);
+          const yamlString = decodeURIComponent(encodedYaml);
+          const yamlValue = jsyaml.load(yamlString);
+          currentYaml = yamlValue;
+          editor.setValue(yamlString);
+          renderYaml();
+        } catch (e) {
+          errorContainer.textContent = `Error loading from URL: ${e.message}`;
+        }
+      }
+      
+      editor.onDidChangeModelContent(() => {
+        try {
+          const value = editor.getValue();
+          jsyaml.load(value);
+          errorContainer.textContent = '';
+        } catch (e) {
+          errorContainer.textContent = `YAML Parse Error: ${e.message}`;
+        }
+      });
+      
+      // Set up real-time sync from monaco to WYSIWYG
+      editor.onDidChangeModelContent(() => {
+        if (!isUpdatingEditor) {
+          try {
+            const value = editor.getValue();
+            const parsedYaml = jsyaml.load(value);
+            currentYaml = parsedYaml;
+            renderYaml();
+            errorContainer.textContent = '';
+          } catch (e) {
+            errorContainer.textContent = `YAML Parse Error: ${e.message}`;
+          }
+        }
+      });
+    });
+    
+    // Event Listeners
+    formatYamlButton.addEventListener('click', () => {
+      try {
+        const value = editor.getValue();
+        const parsedYaml = jsyaml.load(value);
+        editor.setValue(jsyaml.dump(parsedYaml, { indent: 2 }));
+      } catch (e) {
+        errorContainer.textContent = `YAML Parse Error: ${e.message}`;
+      }
+    });
+    
+    saveYamlButton.addEventListener('click', () => {
+      try {
+        const yamlValue = getYamlFromWysiwyg();
+        const yamlString = jsyaml.dump(yamlValue, { indent: 2 });
+        const encodedYaml = encodeURIComponent(yamlString);
+        window.location.hash = encodedYaml;
+        
+        // Show feedback to user
+        const savedMessage = document.createElement('div');
+        savedMessage.style.position = 'fixed';
+        savedMessage.style.top = '20px';
+        savedMessage.style.left = '50%';
+        savedMessage.style.transform = 'translateX(-50%)';
+        savedMessage.style.backgroundColor = 'var(--accent)';
+        savedMessage.style.color = 'var(--amoled-black)';
+        savedMessage.style.padding = '10px 20px';
+        savedMessage.style.borderRadius = '4px';
+        savedMessage.style.zIndex = '9999';
+        savedMessage.innerHTML = '<i class="fas fa-check-circle"></i> YAML saved to URL';
+        document.body.appendChild(savedMessage);
+        
+        setTimeout(() => {
+          savedMessage.style.opacity = '0';
+          savedMessage.style.transition = 'opacity 0.5s';
+          setTimeout(() => {
+            document.body.removeChild(savedMessage);
+          }, 500);
+        }, 2000);
+      } catch (e) {
+        errorContainer.textContent = `Error saving to URL: ${e.message}`;
+      }
+    });
+    
+    applyChangesButton.addEventListener('click', () => {
+      updateMonacoFromWysiwyg();
+    });
+    
+    resetYamlButton.addEventListener('click', () => {
+      initializeWysiwygEditor();
+    });
+    
+    propertyTypeSelect.addEventListener('change', () => {
+      updatePropertyValueInput();
+    });
+    
+    closeModalButtons.forEach(button => {
+      button.addEventListener('click', () => {
+        closeModal();
+      });
+    });
+    
+    confirmAddPropertyButton.addEventListener('click', () => {
+      addNewProperty();
+    });
+    
+    // Functions
+    function initializeWysiwygEditor() {
+      try {
+        const yamlText = editor.getValue();
+        currentYaml = jsyaml.load(yamlText);
+        renderYaml();
+        errorContainer.textContent = '';
+      } catch (e) {
+        errorContainer.textContent = `YAML Parse Error: ${e.message}`;
+        yamlContentElement.innerHTML = '<p>Invalid YAML</p>';
+      }
+    }
+    
+    function renderYaml() {
+      yamlContentElement.innerHTML = '';
+      if (typeof currentYaml === 'object' && currentYaml !== null) {
+        if (Array.isArray(currentYaml)) {
+          renderArray(currentYaml, yamlContentElement, []);
+        } else {
+          renderObject(currentYaml, yamlContentElement, []);
+        }
+      } else {
+        renderPrimitive(currentYaml, yamlContentElement, []);
+      }
+    }
+    
+    function renderObject(obj, container, path) {
+      for (const key in obj) {
+        const value = obj[key];
+        const propertyPath = [...path, key];
+        
+        const propertyElement = document.createElement('div');
+        propertyElement.className = 'yaml-property';
+        propertyElement.dataset.path = propertyPath.join('.');
+        
+        const headerElement = document.createElement('div');
+        headerElement.className = 'yaml-property-header';
+        
+        const nameElement = document.createElement('span');
+        nameElement.className = 'yaml-property-name';
+        nameElement.textContent = key;
+        
+        headerElement.appendChild(nameElement);
+        
+        if (typeof value === 'object' && value !== null) {
+          const collapseIcon = document.createElement('span');
+          collapseIcon.className = 'collapse-icon';
+          collapseIcon.innerHTML = '<i class="fas fa-chevron-down"></i>';
+          headerElement.insertBefore(collapseIcon, nameElement);
+          
+          headerElement.addEventListener('click', () => {
+            propertyElement.classList.toggle('collapsed');
+          });
+          
+          propertyElement.appendChild(headerElement);
+          
+          const nestedContainer = document.createElement('div');
+          if (Array.isArray(value)) {
+            nestedContainer.className = 'yaml-array';
+            renderArray(value, nestedContainer, propertyPath);
+          } else {
+            nestedContainer.className = 'yaml-object';
+            renderObject(value, nestedContainer, propertyPath);
+          }
+          propertyElement.appendChild(nestedContainer);
+          
+          // Add action buttons container
+          const actionButtons = document.createElement('div');
+          actionButtons.className = 'action-buttons';
+          headerElement.appendChild(actionButtons);
+          
+          // Add "Add Property" button for objects
+          if (!Array.isArray(value)) {
+            const addBtn = document.createElement('button');
+            addBtn.className = 'add-property-btn';
+            addBtn.innerHTML = '<i class="fas fa-plus"></i>';
+            addBtn.title = 'Add Property';
+            addBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              openAddPropertyModal(propertyPath, nestedContainer);
+            });
+            actionButtons.appendChild(addBtn);
+          }
+          
+          // Add remove button
+          const removeBtn = document.createElement('button');
+          removeBtn.className = 'remove-property-btn';
+          removeBtn.innerHTML = '<i class="fas fa-trash-alt"></i>';
+          removeBtn.title = 'Remove Property';
+          removeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            removeProperty(propertyPath);
+          });
+          actionButtons.appendChild(removeBtn);
+        } else {
+          const valueContainer = document.createElement('div');
+          valueContainer.className = 'yaml-property-value-container';
+          
+          const typeElement = document.createElement('span');
+          typeElement.className = 'yaml-property-type';
+          typeElement.textContent = getTypeName(value);
+          valueContainer.appendChild(typeElement);
+          
+          const valueElement = createValueEditor(value, propertyPath);
+          valueContainer.appendChild(valueElement);
+          
+          headerElement.appendChild(valueContainer);
+          propertyElement.appendChild(headerElement);
+          
+          // Add action buttons container with remove button
+          const actionButtons = document.createElement('div');
+          actionButtons.className = 'action-buttons';
+          
+          const removeBtn = document.createElement('button');
+          removeBtn.className = 'remove-property-btn';
+          removeBtn.innerHTML = '<i class="fas fa-trash-alt"></i>';
+          removeBtn.title = 'Remove Property';
+          removeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            removeProperty(propertyPath);
+          });
+          
+          actionButtons.appendChild(removeBtn);
+          headerElement.appendChild(actionButtons);
+        }
+        
+        container.appendChild(propertyElement);
+      }
+      
+      // Add "Add Property" button for the root object
+      if (path.length === 0 && !Array.isArray(obj)) {
+        const addBtnContainer = document.createElement('div');
+        addBtnContainer.style.margin = '16px 0';
+        
+        const addBtn = document.createElement('button');
+        addBtn.innerHTML = '<i class="fas fa-plus"></i> Add Property';
+        addBtn.addEventListener('click', () => {
+          openAddPropertyModal([], container);
+        });
+        
+        addBtnContainer.appendChild(addBtn);
+        container.appendChild(addBtnContainer);
+      }
+    }
+    
+    function renderArray(arr, container, path) {
+      arr.forEach((item, index) => {
+        const itemPath = [...path, index];
+        
+        const propertyElement = document.createElement('div');
+        propertyElement.className = 'yaml-property';
+        propertyElement.dataset.path = itemPath.join('.');
+        
+        const headerElement = document.createElement('div');
+        headerElement.className = 'yaml-property-header';
+        
+        const nameElement = document.createElement('span');
+        nameElement.className = 'yaml-property-name';
+        nameElement.textContent = `- `;  // YAML uses - for array items
+        
+        headerElement.appendChild(nameElement);
+        
+        if (typeof item === 'object' && item !== null) {
+          const collapseIcon = document.createElement('span');
+          collapseIcon.className = 'collapse-icon';
+          collapseIcon.innerHTML = '<i class="fas fa-chevron-down"></i>';
+          headerElement.insertBefore(collapseIcon, nameElement);
+          
+          headerElement.addEventListener('click', () => {
+            propertyElement.classList.toggle('collapsed');
+          });
+          
+          propertyElement.appendChild(headerElement);
+          
+          const nestedContainer = document.createElement('div');
+          if (Array.isArray(item)) {
+            nestedContainer.className = 'yaml-array';
+            renderArray(item, nestedContainer, itemPath);
+          } else {
+            nestedContainer.className = 'yaml-object';
+            renderObject(item, nestedContainer, itemPath);
+          }
+          propertyElement.appendChild(nestedContainer);
+        } else {
+          const valueContainer = document.createElement('div');
+          valueContainer.className = 'yaml-property-value-container';
+          
+          const typeElement = document.createElement('span');
+          typeElement.className = 'yaml-property-type';
+          typeElement.textContent = getTypeName(item);
+          valueContainer.appendChild(typeElement);
+          
+          const valueElement = createValueEditor(item, itemPath);
+          valueContainer.appendChild(valueElement);
+          
+          headerElement.appendChild(valueContainer);
+          propertyElement.appendChild(headerElement);
+        }
+        
+        // Add action buttons container
+        const actionButtons = document.createElement('div');
+        actionButtons.className = 'action-buttons';
+        
+        // Add remove button
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'remove-property-btn';
+        removeBtn.innerHTML = '<i class="fas fa-trash-alt"></i>';
+        removeBtn.title = 'Remove Item';
+        removeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          removeProperty(itemPath);
+        });
+        
+        actionButtons.appendChild(removeBtn);
+        headerElement.appendChild(actionButtons);
+        
+        container.appendChild(propertyElement);
+      });
+      
+      // Add "Add Item" button for arrays
+      const addBtnContainer = document.createElement('div');
+      addBtnContainer.style.margin = '8px 0 8px 16px';
+      
+      const addBtn = document.createElement('button');
+      addBtn.className = 'add-item-btn';
+      addBtn.innerHTML = '<i class="fas fa-plus"></i> Add Item';
+      addBtn.addEventListener('click', () => {
+        addArrayItem(path);
+      });
+      
+      addBtnContainer.appendChild(addBtn);
+      container.appendChild(addBtnContainer);
+    }
+    
+    function renderPrimitive(value, container, path) {
+      const valueElement = createValueEditor(value, path);
+      container.appendChild(valueElement);
+    }
+    
+    function createValueEditor(value, path) {
+      const valueElement = document.createElement('div');
+      valueElement.className = 'yaml-property-value';
+      valueElement.contentEditable = true;
+      valueElement.dataset.path = path.join('.');
+      valueElement.dataset.type = getTypeName(value);
+      
+      if (value === null) {
+        valueElement.textContent = 'null';
+        valueElement.style.fontStyle = 'italic';
+      } else if (typeof value === 'boolean') {
+        valueElement.textContent = value.toString();
+        valueElement.style.fontWeight = 'bold';
+      } else {
+        valueElement.textContent = value.toString();
+      }
+      
+      valueElement.addEventListener('blur', () => {
+        updateYamlValue(path, valueElement);
+      });
+      
+      valueElement.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          valueElement.blur();
+        }
+      });
+      
+      return valueElement;
+    }
+    
+    function getTypeName(value) {
+      if (value === null) return 'null';
+      if (Array.isArray(value)) return 'array';
+      return typeof value;
+    }
+    
+    function updateYamlValue(path, element) {
+      const type = element.dataset.type;
+      let value = element.textContent.trim();
+      
+      try {
+        switch (type) {
+          case 'number':
+            value = Number(value);
+            if (isNaN(value)) throw new Error('Invalid number');
+            break;
+          case 'boolean':
+            if (value.toLowerCase() === 'true') value = true;
+            else if (value.toLowerCase() === 'false') value = false;
+            else throw new Error('Boolean must be true or false');
+            break;
+          case 'null':
+            if (value.toLowerCase() !== 'null') throw new Error('Must be null');
+            value = null;
+            break;
+        }
+        
+        setValueAtPath(currentYaml, path, value);
+        errorContainer.textContent = '';
+        
+        // Update the Monaco editor in real-time
+        updateMonacoFromWysiwyg();
+      } catch (e) {
+        errorContainer.textContent = `Error updating value: ${e.message}`;
+        // Reset the element to the current value
+        element.textContent = getValueAtPath(currentYaml, path);
+      }
+    }
+    
+    function updateMonacoFromWysiwyg() {
+      const yamlValue = getYamlFromWysiwyg();
+      try {
+        isUpdatingEditor = true;
+        editor.setValue(jsyaml.dump(yamlValue, { indent: 2 }));
+        errorContainer.textContent = '';
+        setTimeout(() => {
+          isUpdatingEditor = false;
+        }, 0);
+      } catch (e) {
+        errorContainer.textContent = `Error applying changes: ${e.message}`;
+        isUpdatingEditor = false;
+      }
+    }
+    
+    function setValueAtPath(obj, path, value) {
+      if (path.length === 0) return value;
+      
+      const pathArray = Array.isArray(path) ? path : path.split('.');
+      let current = obj;
+      
+      for (let i = 0; i < pathArray.length - 1; i++) {
+        const key = pathArray[i];
+        if (current[key] === undefined) {
+          current[key] = {};
+        }
+        current = current[key];
+      }
+      
+      current[pathArray[pathArray.length - 1]] = value;
+      return obj;
+    }
+    
+    function getValueAtPath(obj, path) {
+      const pathArray = Array.isArray(path) ? path : path.split('.');
+      let current = obj;
+      
+      for (const key of pathArray) {
+        if (current === undefined || current === null) {
+          return undefined;
+        }
+        current = current[key];
+      }
+      
+      return current;
+    }
+    
+    function removeProperty(path) {
+      const pathArray = Array.isArray(path) ? path : path.split('.');
+      const key = pathArray.pop();
+      let obj = currentYaml;
+      
+      for (const segment of pathArray) {
+        obj = obj[segment];
+        if (obj === undefined || obj === null) {
+          return;
+        }
+      }
+      
+      if (Array.isArray(obj)) {
+        obj.splice(Number(key), 1);
+      } else {
+        delete obj[key];
+      }
+      
+      renderYaml();
+      
+      // Update Monaco editor in real-time
+      updateMonacoFromWysiwyg();
+    }
+    
+    function openAddPropertyModal(path, container) {
+      currentPath = path;
+      parentElement = container;
+      propertyNameInput.value = '';
+      propertyTypeSelect.value = 'string';
+      propertyValueInput.value = '';
+      updatePropertyValueInput();
+      
+      addPropertyModal.classList.add('visible');
+      propertyNameInput.focus();
+    }
+    
+    function closeModal() {
+      addPropertyModal.classList.remove('visible');
+    }
+    
+    function updatePropertyValueInput() {
+      const type = propertyTypeSelect.value;
+      
+      if (type === 'object' || type === 'array' || type === 'null') {
+        propertyValueContainer.style.display = 'none';
+      } else {
+        propertyValueContainer.style.display = 'block';
+        
+        if (type === 'boolean') {
+          propertyValueInput.type = 'text';
+          propertyValueInput.placeholder = 'true or false';
+        } else if (type === 'number') {
+          propertyValueInput.type = 'number';
+          propertyValueInput.placeholder = 'Enter a number';
+        } else {
+          propertyValueInput.type = 'text';
+          propertyValueInput.placeholder = 'Enter a string';
+        }
+      }
+    }
+    
+    function addNewProperty() {
+      const name = propertyNameInput.value.trim();
+      const type = propertyTypeSelect.value;
+      
+      if (!name) {
+        alert('Property name is required');
+        return;
+      }
+      
+      let value;
+      
+      switch (type) {
+        case 'string':
+          value = propertyValueInput.value;
+          break;
+        case 'number':
+          value = Number(propertyValueInput.value);
+          if (isNaN(value)) {
+            alert('Invalid number');
+            return;
+          }
+          break;
+        case 'boolean':
+          const boolValue = propertyValueInput.value.toLowerCase();
+          if (boolValue === 'true') value = true;
+          else if (boolValue === 'false') value = false;
+          else {
+            alert('Boolean must be true or false');
+            return;
+          }
+          break;
+        case 'object':
+          value = {};
+          break;
+        case 'array':
+          value = [];
+          break;
+        case 'null':
+          value = null;
+          break;
+      }
+      
+      let target = currentYaml;
+      
+      for (const segment of currentPath) {
+        target = target[segment];
+      }
+      
+      if (Array.isArray(target)) {
+        target.push(value);
+      } else {
+        target[name] = value;
+      }
+      
+      closeModal();
+      renderYaml();
+      
+      // Update Monaco editor in real-time
+      updateMonacoFromWysiwyg();
+    }
+    
+    function addArrayItem(path) {
+      let array = currentYaml;
+      
+      for (const segment of path) {
+        array = array[segment];
+      }
+      
+      if (Array.isArray(array)) {
+        array.push('');
+        renderYaml();
+        
+        // Update Monaco editor in real-time
+        updateMonacoFromWysiwyg();
+      }
+    }
+    
+    function getYamlFromWysiwyg() {
+      return JSON.parse(JSON.stringify(currentYaml));
+    }
+  </script>
+</body>
+</html>
