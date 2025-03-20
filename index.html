@@ -370,6 +370,12 @@
   </div>
   
   <script>
+    // Make sure js-yaml is available
+    if (typeof jsyaml === 'undefined') {
+      console.error('js-yaml library not loaded properly. Please check your internet connection and try again.');
+      document.getElementById('error-container').textContent = 'YAML library not loaded. Please check your internet connection and try again.';
+    }
+    
     // Global variables for elements
     const yamlContentElement = document.getElementById('yaml-content');
     const formatYamlButton = document.getElementById('format-yaml');
