@@ -3,10 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Monaco + WYSIWYG YAML Editor</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <title>Standalone YAML Editor</title>
   <style>
     :root {
       --amoled-black: #000000;
@@ -46,9 +43,17 @@
       border-right: 1px solid var(--highlight);
     }
     
-    #monaco-editor {
+    .code-editor {
       width: 100%;
       height: 100%;
+      background-color: var(--amoled-black);
+      color: var(--text);
+      font-family: monospace;
+      font-size: 14px;
+      padding: 10px;
+      border: none;
+      resize: none;
+      outline: none;
     }
     
     .wysiwyg-container {
@@ -309,23 +314,30 @@
 <body>
   <div class="container">
     <div class="editor-container">
-      <div id="monaco-editor"></div>
+      <textarea class="code-editor" id="code-editor">hello: world
+number: 42
+boolean: true
+nested:
+  array:
+    - 1
+    - 2
+    - 3
+  null: null</textarea>
     </div>
     
     <div class="wysiwyg-container">
       <div class="wysiwyg-header">
-        <h2><i class="fas fa-file-code"></i> YAML Editor</h2>
+        <h2>YAML Editor</h2>
         <div class="header-actions">
-          <button id="format-yaml" class="primary"><i class="fas fa-align-left"></i> Format</button>
-          <button id="save-yaml" class="primary"><i class="fas fa-save"></i> Save to URL</button>
+          <button id="format-yaml" class="primary">Format</button>
+          <button id="save-yaml" class="primary">Save to URL</button>
         </div>
       </div>
       
       <div id="yaml-content"></div>
       
       <div class="yaml-controls">
-        <button id="apply-changes" style="display: none;">Apply Changes</button>
-        <button id="reset-yaml"><i class="fas fa-sync-alt"></i> Reset</button>
+        <button id="reset-yaml">Reset</button>
       </div>
       
       <div id="error-container" class="error-message"></div>
@@ -336,8 +348,8 @@
   <div class="modal" id="add-property-modal">
     <div class="modal-content">
       <div class="modal-header">
-        <h3><i class="fas fa-plus-circle"></i> Add Property</h3>
-        <button class="close-modal"><i class="fas fa-times"></i></button>
+        <h3>Add Property</h3>
+        <button class="close-modal">×</button>
       </div>
       
       <div class="form-group">
@@ -363,24 +375,273 @@
       </div>
       
       <div class="modal-footer">
-        <button class="close-modal"><i class="fas fa-times"></i> Cancel</button>
-        <button id="confirm-add-property" class="primary"><i class="fas fa-plus"></i> Add</button>
+        <button class="close-modal">Cancel</button>
+        <button id="confirm-add-property" class="primary">Add</button>
       </div>
     </div>
   </div>
   
   <script>
-    // Make sure js-yaml is available
-    if (typeof jsyaml === 'undefined') {
-      console.error('js-yaml library not loaded properly. Please check your internet connection and try again.');
-      document.getElementById('error-container').textContent = 'YAML library not loaded. Please check your internet connection and try again.';
-    }
+    // YAML Parser (simplified for basic structures)
+    const YAML = {
+      parse: function(text) {
+        try {
+          // Split the text into lines
+          const lines = text.split('\n');
+          return this.parseObject(lines, 0, 0).value;
+        } catch (e) {
+          throw new Error('YAML Parse Error: ' + e.message);
+        }
+      },
+      
+      parseObject: function(lines, startIndex, baseIndent) {
+        const obj = {};
+        let i = startIndex;
+        
+        while (i < lines.length) {
+          const line = lines[i];
+          const trimmedLine = line.trim();
+          
+          // Skip empty lines and comments
+          if (trimmedLine === '' || trimmedLine.startsWith('#')) {
+            i++;
+            continue;
+          }
+          
+          // Calculate line indent
+          const indent = this.getIndent(line);
+          
+          // If this line has less indent than base, we're done with this object
+          if (indent < baseIndent) {
+            break;
+          }
+          
+          // If this is a new property at the current indent level
+          if (indent === baseIndent) {
+            const colonIndex = line.indexOf(':');
+            
+            if (colonIndex === -1) {
+              throw new Error(`Missing colon in property at line ${i + 1}`);
+            }
+            
+            const key = line.substring(0, colonIndex).trim();
+            const valueText = line.substring(colonIndex + 1).trim();
+            
+            // Empty value means it's an object or array on next lines
+            if (valueText === '') {
+              // Look ahead to determine if it's an object or array
+              if (i + 1 < lines.length) {
+                const nextLine = lines[i + 1].trim();
+                if (nextLine.startsWith('-')) {
+                  // It's an array
+                  const result = this.parseArray(lines, i + 1, baseIndent + 2);
+                  obj[key] = result.value;
+                  i = result.newIndex;
+                } else {
+                  // It's an object
+                  const result = this.parseObject(lines, i + 1, baseIndent + 2);
+                  obj[key] = result.value;
+                  i = result.newIndex;
+                }
+              } else {
+                // No next line, assume empty object
+                obj[key] = {};
+                i++;
+              }
+            } else {
+              // It's a value on the same line
+              obj[key] = this.parseScalar(valueText);
+              i++;
+            }
+          } else {
+            // We found a line with more indent than current but not immediately following a key
+            throw new Error(`Unexpected indentation at line ${i + 1}`);
+          }
+        }
+        
+        return { value: obj, newIndex: i };
+      },
+      
+      parseArray: function(lines, startIndex, baseIndent) {
+        const arr = [];
+        let i = startIndex;
+        
+        while (i < lines.length) {
+          const line = lines[i];
+          const trimmedLine = line.trim();
+          
+          // Skip empty lines and comments
+          if (trimmedLine === '' || trimmedLine.startsWith('#')) {
+            i++;
+            continue;
+          }
+          
+          // Calculate line indent
+          const indent = this.getIndent(line);
+          
+          // If this line has less indent than base, we're done with this array
+          if (indent < baseIndent) {
+            break;
+          }
+          
+          // If this is a new array item at the current indent level
+          if (indent === baseIndent && trimmedLine.startsWith('-')) {
+            const valueText = trimmedLine.substring(1).trim();
+            
+            // Empty value means it's an object or array on next lines
+            if (valueText === '') {
+              // Look ahead to determine if it's an object or array
+              if (i + 1 < lines.length) {
+                const nextLine = lines[i + 1].trim();
+                if (nextLine.startsWith('-')) {
+                  // It's an array
+                  const result = this.parseArray(lines, i + 1, baseIndent + 2);
+                  arr.push(result.value);
+                  i = result.newIndex;
+                } else {
+                  // It's an object
+                  const result = this.parseObject(lines, i + 1, baseIndent + 2);
+                  arr.push(result.value);
+                  i = result.newIndex;
+                }
+              } else {
+                // No next line, assume empty string
+                arr.push('');
+                i++;
+              }
+            } else {
+              // It's a value on the same line
+              arr.push(this.parseScalar(valueText));
+              i++;
+            }
+          } else {
+            // We found a line with more indent than current but not starting with -
+            // This means the array item is an object
+            if (arr.length === 0) {
+              throw new Error(`Expected array item to start with '-' at line ${i + 1}`);
+            }
+            
+            // If last item is an object, we need to parse it
+            if (typeof arr[arr.length - 1] === 'object' && !Array.isArray(arr[arr.length - 1])) {
+              const result = this.parseObject(lines, i, baseIndent + 2);
+              arr[arr.length - 1] = result.value;
+              i = result.newIndex;
+            } else {
+              throw new Error(`Unexpected indentation at line ${i + 1}`);
+            }
+          }
+        }
+        
+        return { value: arr, newIndex: i };
+      },
+      
+      parseScalar: function(text) {
+        // Handle strings
+        if (text.startsWith('"') && text.endsWith('"')) {
+          return text.substring(1, text.length - 1);
+        }
+        if (text.startsWith("'") && text.endsWith("'")) {
+          return text.substring(1, text.length - 1);
+        }
+        
+        // Handle numbers
+        if (/^-?\d+$/.test(text)) {
+          return parseInt(text, 10);
+        }
+        if (/^-?\d+\.\d+$/.test(text)) {
+          return parseFloat(text);
+        }
+        
+        // Handle booleans
+        if (text.toLowerCase() === 'true') {
+          return true;
+        }
+        if (text.toLowerCase() === 'false') {
+          return false;
+        }
+        
+        // Handle null
+        if (text.toLowerCase() === 'null' || text === '~') {
+          return null;
+        }
+        
+        // Default to string
+        return text;
+      },
+      
+      getIndent: function(line) {
+        let count = 0;
+        for (let i = 0; i < line.length; i++) {
+          if (line[i] === ' ') {
+            count++;
+          } else if (line[i] === '\t') {
+            count += 2;
+          } else {
+            break;
+          }
+        }
+        return count;
+      },
+      
+      stringify: function(obj, indent = 0) {
+        let result = '';
+        const spaces = ' '.repeat(indent);
+        
+        if (Array.isArray(obj)) {
+          if (obj.length === 0) {
+            return spaces + '[]';
+          }
+          
+          for (const item of obj) {
+            result += spaces + '- ';
+            if (typeof item === 'object' && item !== null) {
+              result += '\n' + this.stringify(item, indent + 2);
+            } else {
+              result += this.stringifyScalar(item) + '\n';
+            }
+          }
+        } else if (typeof obj === 'object' && obj !== null) {
+          if (Object.keys(obj).length === 0) {
+            return spaces + '{}';
+          }
+          
+          for (const [key, value] of Object.entries(obj)) {
+            result += spaces + key + ': ';
+            if (typeof value === 'object' && value !== null) {
+              result += '\n' + this.stringify(value, indent + 2);
+            } else {
+              result += this.stringifyScalar(value) + '\n';
+            }
+          }
+        } else {
+          result += spaces + this.stringifyScalar(obj) + '\n';
+        }
+        
+        return result;
+      },
+      
+      stringifyScalar: function(value) {
+        if (value === null) {
+          return 'null';
+        }
+        if (typeof value === 'string') {
+          // Check if string needs quotes
+          if (value.includes('\n') || value.includes(':') || value.includes('#') || 
+              value === 'true' || value === 'false' || value === 'null' || 
+              /^-?\d+(\.\d+)?$/.test(value)) {
+            return `"${value.replace(/"/g, '\\"')}"`;
+          }
+          return value;
+        }
+        return String(value);
+      }
+    };
     
-    // Global variables for elements
+    // Elements
+    const codeEditor = document.getElementById('code-editor');
     const yamlContentElement = document.getElementById('yaml-content');
     const formatYamlButton = document.getElementById('format-yaml');
     const saveYamlButton = document.getElementById('save-yaml');
-    const applyChangesButton = document.getElementById('apply-changes');
     const resetYamlButton = document.getElementById('reset-yaml');
     const errorContainer = document.getElementById('error-container');
     const addPropertyModal = document.getElementById('add-property-modal');
@@ -391,117 +652,48 @@
     const propertyValueInput = document.getElementById('property-value');
     const propertyValueContainer = document.getElementById('property-value-container');
     
-    // Global variables for state
-    let editor = null;
+    // State
     let currentYaml = null;
     let currentPath = [];
     let parentElement = null;
     let isUpdatingEditor = false;
     
-    // Configure Monaco editor
-    require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' }});
-    require(['vs/editor/editor.main'], function() {
-      // Define AMOLED theme
-      monaco.editor.defineTheme('amoled-theme', {
-        base: 'vs-dark',
-        inherit: true,
-        rules: [
-          { token: 'string', foreground: 'a5d6a7' },
-          { token: 'number', foreground: '64b5f6' },
-          { token: 'keyword', foreground: 'ba68c8' },
-          { token: 'delimiter', foreground: 'e0e0e0' },
-          { token: 'delimiter.bracket', foreground: 'e0e0e0' }
-        ],
-        colors: {
-          'editor.background': '#000000',
-          'editor.foreground': '#e0e0e0',
-          'editorCursor.foreground': '#bb86fc',
-          'editor.lineHighlightBackground': '#121212',
-          'editorLineNumber.foreground': '#4d4d4d',
-          'editor.selectionBackground': '#2d2d2d',
-          'editor.inactiveSelectionBackground': '#1e1e1e',
-          'editorSuggestWidget.background': '#121212',
-          'editorSuggestWidget.border': '#2d2d2d',
-          'editorSuggestWidget.foreground': '#e0e0e0',
-          'editorSuggestWidget.selectedBackground': '#2d2d2d',
-          'editorSuggestWidget.highlightForeground': '#bb86fc',
-          'editorWidget.background': '#121212',
-          'editorWidget.border': '#2d2d2d'
-        }
-      });
-      
-      // Create Monaco editor with YAML language
-      editor = monaco.editor.create(document.getElementById('monaco-editor'), {
-        value: 'hello: world\nnumber: 42\nboolean: true\nnested:\n  array:\n    - 1\n    - 2\n    - 3\n  null: null',
-        language: 'yaml',
-        theme: 'amoled-theme',
-        automaticLayout: true,
-        minimap: {
-          enabled: false
-        },
-        scrollBeyondLastLine: false,
-        formatOnPaste: true,
-        tabSize: 2
-      });
-      
-      // Initialize editor
-      initializeWysiwygEditor();
-      
-      // Load from URL hash if available
-      if (window.location.hash) {
-        try {
-          const encodedYaml = window.location.hash.substring(1);
-          const yamlString = decodeURIComponent(encodedYaml);
-          const yamlValue = jsyaml.load(yamlString);
-          currentYaml = yamlValue;
-          editor.setValue(yamlString);
-          renderYaml();
-        } catch (e) {
-          errorContainer.textContent = `Error loading from URL: ${e.message}`;
-        }
+    // Initialize
+    initializeEditor();
+    
+    // Load from URL hash if available
+    if (window.location.hash) {
+      try {
+        const encodedYaml = window.location.hash.substring(1);
+        const yamlString = decodeURIComponent(encodedYaml);
+        codeEditor.value = yamlString;
+        initializeEditor();
+      } catch (e) {
+        errorContainer.textContent = `Error loading from URL: ${e.message}`;
       }
-      
-      editor.onDidChangeModelContent(() => {
-        try {
-          const value = editor.getValue();
-          jsyaml.load(value);
-          errorContainer.textContent = '';
-        } catch (e) {
-          errorContainer.textContent = `YAML Parse Error: ${e.message}`;
-        }
-      });
-      
-      // Set up real-time sync from monaco to WYSIWYG
-      editor.onDidChangeModelContent(() => {
-        if (!isUpdatingEditor) {
-          try {
-            const value = editor.getValue();
-            const parsedYaml = jsyaml.load(value);
-            currentYaml = parsedYaml;
-            renderYaml();
-            errorContainer.textContent = '';
-          } catch (e) {
-            errorContainer.textContent = `YAML Parse Error: ${e.message}`;
-          }
-        }
-      });
-    });
+    }
     
     // Event Listeners
+    codeEditor.addEventListener('input', () => {
+      if (!isUpdatingEditor) {
+        initializeEditor();
+      }
+    });
+    
     formatYamlButton.addEventListener('click', () => {
       try {
-        const value = editor.getValue();
-        const parsedYaml = jsyaml.load(value);
-        editor.setValue(jsyaml.dump(parsedYaml, { indent: 2 }));
+        const value = codeEditor.value;
+        const parsedYaml = YAML.parse(value);
+        codeEditor.value = YAML.stringify(parsedYaml);
+        initializeEditor();
       } catch (e) {
-        errorContainer.textContent = `YAML Parse Error: ${e.message}`;
+        errorContainer.textContent = e.message;
       }
     });
     
     saveYamlButton.addEventListener('click', () => {
       try {
-        const yamlValue = getYamlFromWysiwyg();
-        const yamlString = jsyaml.dump(yamlValue, { indent: 2 });
+        const yamlString = codeEditor.value;
         const encodedYaml = encodeURIComponent(yamlString);
         window.location.hash = encodedYaml;
         
@@ -516,7 +708,7 @@
         savedMessage.style.padding = '10px 20px';
         savedMessage.style.borderRadius = '4px';
         savedMessage.style.zIndex = '9999';
-        savedMessage.innerHTML = '<i class="fas fa-check-circle"></i> YAML saved to URL';
+        savedMessage.textContent = 'YAML saved to URL';
         document.body.appendChild(savedMessage);
         
         setTimeout(() => {
@@ -531,12 +723,8 @@
       }
     });
     
-    applyChangesButton.addEventListener('click', () => {
-      updateMonacoFromWysiwyg();
-    });
-    
     resetYamlButton.addEventListener('click', () => {
-      initializeWysiwygEditor();
+      initializeEditor();
     });
     
     propertyTypeSelect.addEventListener('change', () => {
@@ -554,14 +742,14 @@
     });
     
     // Functions
-    function initializeWysiwygEditor() {
+    function initializeEditor() {
       try {
-        const yamlText = editor.getValue();
-        currentYaml = jsyaml.load(yamlText);
+        const yamlText = codeEditor.value;
+        currentYaml = YAML.parse(yamlText);
         renderYaml();
         errorContainer.textContent = '';
       } catch (e) {
-        errorContainer.textContent = `YAML Parse Error: ${e.message}`;
+        errorContainer.textContent = e.message;
         yamlContentElement.innerHTML = '<p>Invalid YAML</p>';
       }
     }
@@ -600,7 +788,7 @@
         if (typeof value === 'object' && value !== null) {
           const collapseIcon = document.createElement('span');
           collapseIcon.className = 'collapse-icon';
-          collapseIcon.innerHTML = '<i class="fas fa-chevron-down"></i>';
+          collapseIcon.textContent = '▼';
           headerElement.insertBefore(collapseIcon, nameElement);
           
           headerElement.addEventListener('click', () => {
@@ -628,7 +816,7 @@
           if (!Array.isArray(value)) {
             const addBtn = document.createElement('button');
             addBtn.className = 'add-property-btn';
-            addBtn.innerHTML = '<i class="fas fa-plus"></i>';
+            addBtn.textContent = '+';
             addBtn.title = 'Add Property';
             addBtn.addEventListener('click', (e) => {
               e.stopPropagation();
@@ -640,7 +828,7 @@
           // Add remove button
           const removeBtn = document.createElement('button');
           removeBtn.className = 'remove-property-btn';
-          removeBtn.innerHTML = '<i class="fas fa-trash-alt"></i>';
+          removeBtn.textContent = '×';
           removeBtn.title = 'Remove Property';
           removeBtn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -668,7 +856,7 @@
           
           const removeBtn = document.createElement('button');
           removeBtn.className = 'remove-property-btn';
-          removeBtn.innerHTML = '<i class="fas fa-trash-alt"></i>';
+          removeBtn.textContent = '×';
           removeBtn.title = 'Remove Property';
           removeBtn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -688,7 +876,7 @@
         addBtnContainer.style.margin = '16px 0';
         
         const addBtn = document.createElement('button');
-        addBtn.innerHTML = '<i class="fas fa-plus"></i> Add Property';
+        addBtn.textContent = 'Add Property';
         addBtn.addEventListener('click', () => {
           openAddPropertyModal([], container);
         });
@@ -711,14 +899,14 @@
         
         const nameElement = document.createElement('span');
         nameElement.className = 'yaml-property-name';
-        nameElement.textContent = `- `;  // YAML uses - for array items
+        nameElement.textContent = '- ';  // YAML uses - for array items
         
         headerElement.appendChild(nameElement);
         
         if (typeof item === 'object' && item !== null) {
           const collapseIcon = document.createElement('span');
           collapseIcon.className = 'collapse-icon';
-          collapseIcon.innerHTML = '<i class="fas fa-chevron-down"></i>';
+          collapseIcon.textContent = '▼';
           headerElement.insertBefore(collapseIcon, nameElement);
           
           headerElement.addEventListener('click', () => {
@@ -759,7 +947,7 @@
         // Add remove button
         const removeBtn = document.createElement('button');
         removeBtn.className = 'remove-property-btn';
-        removeBtn.innerHTML = '<i class="fas fa-trash-alt"></i>';
+        removeBtn.textContent = '×';
         removeBtn.title = 'Remove Item';
         removeBtn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -778,7 +966,7 @@
       
       const addBtn = document.createElement('button');
       addBtn.className = 'add-item-btn';
-      addBtn.innerHTML = '<i class="fas fa-plus"></i> Add Item';
+      addBtn.textContent = 'Add Item';
       addBtn.addEventListener('click', () => {
         addArrayItem(path);
       });
@@ -853,8 +1041,8 @@
         setValueAtPath(currentYaml, path, value);
         errorContainer.textContent = '';
         
-        // Update the Monaco editor in real-time
-        updateMonacoFromWysiwyg();
+        // Update the editor
+        updateEditorFromWysiwyg();
       } catch (e) {
         errorContainer.textContent = `Error updating value: ${e.message}`;
         // Reset the element to the current value
@@ -862,11 +1050,11 @@
       }
     }
     
-    function updateMonacoFromWysiwyg() {
+    function updateEditorFromWysiwyg() {
       const yamlValue = getYamlFromWysiwyg();
       try {
         isUpdatingEditor = true;
-        editor.setValue(jsyaml.dump(yamlValue, { indent: 2 }));
+        codeEditor.value = YAML.stringify(yamlValue);
         errorContainer.textContent = '';
         setTimeout(() => {
           isUpdatingEditor = false;
@@ -929,8 +1117,8 @@
       
       renderYaml();
       
-      // Update Monaco editor in real-time
-      updateMonacoFromWysiwyg();
+      // Update editor
+      updateEditorFromWysiwyg();
     }
     
     function openAddPropertyModal(path, container) {
@@ -1027,8 +1215,8 @@
       closeModal();
       renderYaml();
       
-      // Update Monaco editor in real-time
-      updateMonacoFromWysiwyg();
+      // Update editor
+      updateEditorFromWysiwyg();
     }
     
     function addArrayItem(path) {
@@ -1042,8 +1230,8 @@
         array.push('');
         renderYaml();
         
-        // Update Monaco editor in real-time
-        updateMonacoFromWysiwyg();
+        // Update editor
+        updateEditorFromWysiwyg();
       }
     }
     
